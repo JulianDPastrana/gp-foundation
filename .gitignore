@@ -1,0 +1,51 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.cache
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints
+
+# Pytest cache
+.pytest_cache/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+
+# Poetry related files
+.poetry.lock
+
+# PyQt generated files
+*.pyqt
+*.ui.autosave
+
+# IDE/Editor specific files
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Data files (large datasets if ever added accidentally)
+*.csv
+*.tsv
+*.xlsx
+*.zip
+
+# Outputs and model checkpoints (if not version-controlled)
+checkpoints/
+outputs/
+models/
+
