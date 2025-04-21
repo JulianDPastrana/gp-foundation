@@ -49,3 +49,5 @@ checkpoints/
 outputs/
 models/
 
+# Heavyweight datasets
+data/toadstool/
