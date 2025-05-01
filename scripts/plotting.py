@@ -18,6 +18,8 @@ def plot_multi_task_predictions(train_x, train_y, test_x, mean, lower, upper, ti
     grid_size = np.ceil(np.sqrt(n_tasks)).astype(int)
 
     fig, axs = plt.subplots(grid_size, grid_size, figsize=(4 * grid_size, 3 * grid_size))
+    if not isinstance(axs, (np.ndarray, list, tuple)):
+        axs = np.array([axs])
     axs = axs.flatten()
 
     for task in range(n_tasks):
