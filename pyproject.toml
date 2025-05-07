@@ -1,24 +1,31 @@
-[project]
-name = "gp-foundation"
+[tool.poetry]
+name = "gp-foundational"
 version = "0.1.0"
 description = ""
-authors = [
-    {name = "JulianDPastrana",email = "j.pastrana@utp.edu.co"}
-]
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = [
-    "torch (>=2.6.0,<3.0.0)",
-    "gpytorch (>=1.14,<2.0)",
-    "pandas (>=2.2.3,<3.0.0)",
-    "numpy (>=2.2.4,<3.0.0)",
-    "matplotlib (>=3.10.1,<4.0.0)",
-    "seaborn (>=0.13.2,<0.14.0)",
-    "tqdm (>=4.67.1,<5.0.0)",
-    "pyqt6 (>=6.9.0,<7.0.0)"
+authors = ["Julián Pastrana <j.pastrana@utp.edu.co>"]
+packages = [
+  { include = "chainedgp", from = "src" }
 ]
 
+[tool.poetry.dependencies]
+python = ">=3.13"
+torch = ">=2.6.0,<3.0.0"
+gpytorch = ">=1.14,<2.0"
+pandas = ">=2.2.3,<3.0.0"
+numpy = ">=2.2.4,<3.0.0"
+matplotlib = ">=3.10.1,<4.0.0"
+seaborn = ">=0.13.2,<0.14.0"
+tqdm = ">=4.67.1,<5.0.0"
+pyqt6 = ">=6.9.0,<7.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.3.5,<9.0.0"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+

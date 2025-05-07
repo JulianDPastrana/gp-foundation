@@ -42,7 +42,6 @@ def generate_chained_gp_data(N=500, seed=0, device="cpu"):
 
 # Data preparation
 train_x, train_y = generate_chained_gp_data()
-
 input_dim = train_x.shape[-1]
 num_tasks = train_y.shape[-1]
 num_latents = 2 * num_tasks  # mean and variance for each task
