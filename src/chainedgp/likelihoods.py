@@ -13,8 +13,8 @@ class ChainedLikelihood(gpy.likelihoods.Likelihood):
         assert function_samples.size(-1) == self.num_latents, (
             "Input size mismatch: expected twice the number of tasks."
         )
-
+        eps = 1e-6
         means = function_samples[..., ::2]
-        stds = torch.nn.functional.softplus(function_samples[..., 1::2]) + 1e-6
+        stds = torch.nn.functional.softplus(function_samples[..., 1::2]).clamp(min=eps)
 
         return dist.Independent(dist.Normal(means, stds), 1)
