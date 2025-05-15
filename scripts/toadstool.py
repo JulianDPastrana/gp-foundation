@@ -1,14 +1,7 @@
 import os
+import cv2
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-
-# -*-
-# Exploratory analysis script for Toadstool 2.0 multimodal dataset
-# Each file: participant_{i}_toadstool_multimodal_unprocessed.npy, i = 0..9
-# Sample format: ((face_seq, physio_signals, seq_start), label)
-# physio_signals = [bvp (64Hz), acc (32Hz x 3 axes), eda (4Hz), hr (1Hz)]
-# Labels: 0:Anger,1:Disgust,2:Fear,3:Happy,4:Sad,5:Surprised,6:Neutral
 
 LABELS = {
     0: "Anger",
@@ -21,34 +14,116 @@ LABELS = {
 }
 
 
-def load_all_participants_unprocessed(root_dir):
+def load_participant(root_dir, participant_id):
     """
-    Load and return all participant data as a list of dicts.
+    Load and return one participant's data as a list of dicts.
+    Converts face_seq and physio signals to numpy arrays.
+    Parses accelerometer strings to 2D arrays.
     """
     data = []
-    for p in range(10):
-        fname = os.path.join(
-            root_dir,
-            f"participant_{p}/participant_{p}_toadstool_multimodal_unprocessed.npy",
+    fname = os.path.join(
+        root_dir,
+        f"participant_{participant_id}/participant_{participant_id}_toadstool_multimodal_unprocessed.npy",
+    )
+    if not os.path.isfile(fname):
+        raise FileNotFoundError(f"Could not find file: {fname}")
+    arr = np.load(fname, allow_pickle=True)
+    print(f"Loading participant {participant_id} data from {fname}")
+    for sample_idx, sample in enumerate(arr):
+        (face_seq, physio, seq_start), label = sample
+
+        # Convert to numpy arrays
+        face_seq = np.array(face_seq)
+        acc = np.array([list(map(int, s.split(";"))) for s in physio[3]])
+        physio = [np.array(x) for x in physio[:3]]
+
+        assert face_seq.shape == (12, 224, 224, 3), (
+            f"Face sequence should have shape (12, 224, 224, 3), got {face_seq.shape}"
         )
-        if not os.path.isfile(fname):
-            raise FileNotFoundError(f"Could not find file: {fname}")
-        arr = np.load(fname, allow_pickle=True)
-        for sample in arr:
-            (face_seq, physio, seq_start), label = sample
-            data.append(
-                {
-                    "participant": p,
-                    "face_seq": face_seq,  # list of 12 frames (arrays)
-                    "bvp": physio[0],  # 1D array, 64Hz * 4s = 256 samples
-                    "acc": physio[1],  # 2D array (3 axes x 128 samples)
-                    "eda": physio[2],  # 1D array, 4Hz * 4s = 16 samples
-                    "hr": physio[3],  # 1D array, 1Hz * 4s = 4 samples
-                    "seq_start": seq_start,  # integer, seconds
-                    "label": label,  # integer 0-6
-                }
-            )
-    return data
+        assert physio[0].shape == (256,), (
+            f"BVP should have shape (256,), got {physio[0].shape}"
+        )
+        assert physio[1].shape == (16,), (
+            f"EDA should have shape (16,), got {physio[1].shape}"
+        )
+        assert physio[2].shape == (4,), (
+            f"HR should have shape (4,), got {physio[2].shape}"
+        )
+        assert acc.shape == (128, 3), (
+            f"Accelerometer should have shape (128, 3), got {acc.shape}"
+        )
+        data.append(
+            {
+                "face_seq": face_seq,  # 12 frames of 224x224 RGB images
+                "bvp": physio[0],  # BVP: 256 samples
+                "eda": physio[1],  # EDA: 16 samples
+                "hr": physio[2],  # HR: 4 samples
+                "acc": acc,  # ACC: 128x3
+                "seq_start": seq_start,  # Start time
+                "label": label,  # Emotion label
+            }
+        )
+    sorted_data = sorted(data, key=lambda x: x["seq_start"])
+    return sorted_data
+
+
+def face_seq_to_video(data, output_path, fps=3):
+    """
+    Reconstructs video from face sequences, overlaying only the emotion label.
+    """
+    face_seq_list = []
+    label_list = []
+    for sample in data:
+        face_seq_list.append(sample["face_seq"])  # (12, H, W, C)
+        label_list.append(sample["label"])  # int
+
+    face_seq_array = np.stack(face_seq_list)  # (num_samples, 12, H, W, C)
+    num_samples, num_frames, H, W, C = face_seq_array.shape
+    video_frames = face_seq_array.reshape(num_samples * num_frames, H, W, C)
+    labels_per_frame = np.repeat(label_list, num_frames)
+
+    if video_frames.dtype != np.uint8:
+        video_frames = np.clip(video_frames, 0, 255).astype(np.uint8)
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(output_path, fourcc, fps, (W, H))
+
+    for i, frame in enumerate(video_frames):
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        label_text = LABELS[labels_per_frame[i]]
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1.0
+        font_color = (255, 255, 255)
+        font_thickness = 2
+        outline_color = (0, 0, 0)
+        x, y = 10, 40
+
+        # Outline for better readability
+        cv2.putText(
+            frame_bgr,
+            label_text,
+            (x, y),
+            font,
+            font_scale,
+            outline_color,
+            font_thickness + 2,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame_bgr,
+            label_text,
+            (x, y),
+            font,
+            font_scale,
+            font_color,
+            font_thickness,
+            cv2.LINE_AA,
+        )
+
+        out.write(frame_bgr)
+    out.release()
+    print(f"Saved face sequence video to {output_path}")
 
 
 def to_dataframe(data):
@@ -57,7 +132,6 @@ def to_dataframe(data):
     """
     records = [
         {
-            "participant": d["participant"],
             "seq_start": d["seq_start"],
             "label": d["label"],
         }
@@ -66,92 +140,16 @@ def to_dataframe(data):
     return pd.DataFrame(records)
 
 
-def plot_label_distribution(df):
-    """
-    Bar chart of overall emotion label counts.
-    """
-    counts = df["label"].map(LABELS).value_counts().sort_index()
-    plt.figure(figsize=(8, 5))
-    counts.plot(kind="bar")
-    plt.title("Overall Emotion Label Distribution")
-    plt.xlabel("Emotion")
-    plt.ylabel("Count")
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_per_participant_counts(df):
-    """
-    Bar chart of number of sequences per participant.
-    """
-    counts = df.groupby("participant").size()
-    plt.figure(figsize=(8, 5))
-    counts.plot(kind="bar")
-    plt.title("Sequences per Participant")
-    plt.xlabel("Participant")
-    plt.ylabel("Count")
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_physio_signals_example(data, participant=0, index=0):
-    """
-    Plot example time-series of physiological signals for one sample.
-    """
-    sample = [d for d in data if d["participant"] == participant][index]
-    time_bvp = np.linspace(0, 4, len(sample["bvp"]))
-    time_acc = np.linspace(0, 4, len(sample["acc"]))
-    time_eda = np.linspace(0, 4, len(sample["eda"]))
-    time_hr = np.linspace(0, 4, len(sample["hr"]))
-
-    plt.figure(figsize=(10, 8))
-
-    # BVP
-    plt.subplot(4, 1, 1)
-    plt.plot(time_bvp, sample["bvp"])
-    plt.title("BVP (64Hz)")
-    plt.ylabel("Amplitude")
-
-    # Accelerometer
-    plt.subplot(4, 1, 2)
-    plt.plot(time_acc, sample["acc"])
-    plt.title("Accelerometer (32Hz)")
-    plt.ylabel("g")
-
-    # EDA
-    plt.subplot(4, 1, 3)
-    plt.plot(time_eda, sample["eda"])
-    plt.title("EDA (4Hz)")
-    plt.ylabel("µS")
-
-    # HR
-    plt.subplot(4, 1, 4)
-    plt.step(time_hr, sample["hr"], where="post")
-    plt.title("Heart Rate (1Hz)")
-    plt.xlabel("Time (s)")
-    plt.ylabel("BPM")
-
-    plt.tight_layout()
-    plt.show()
-
-
 if __name__ == "__main__":
-    # Edit this path to where your dataset is stored
+    participant_id = 8  # Set this as desired
     root_dir = "~/Documents/data/toadstool-dataset/toadstool2/Toadstool 2.0"
     root_dir = os.path.expanduser(root_dir)
 
-    # Load and explore
-    print("Loading data...")
-    data = load_all_participants_unprocessed(root_dir)
+    print(f"Loading data for participant {participant_id}...")
+    data = load_participant(root_dir, participant_id)
     print(f"Total samples loaded: {len(data)}")
-
-    df = to_dataframe(data)
-    print("DataFrame head:")
-    print(df.head())
-
-    # Plot distributions
-    plot_label_distribution(df)
-    plot_per_participant_counts(df)
-
-    # Plot example physiological signals for Participant 0, sample 0
-    plot_physio_signals_example(data, participant=0, index=0)
+    face_seq_to_video(
+        data,
+        output_path=f"participant_{participant_id}_face_sequence.mp4",
+        fps=3,
+    )
