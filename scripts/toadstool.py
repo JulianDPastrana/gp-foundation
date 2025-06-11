@@ -28,7 +28,6 @@ def load_participant(root_dir, participant_id):
     if not os.path.isfile(fname):
         raise FileNotFoundError(f"Could not find file: {fname}")
     arr = np.load(fname, allow_pickle=True)
-    print(f"Loading participant {participant_id} data from {fname}")
     for sample_idx, sample in enumerate(arr):
         (face_seq, physio, seq_start), label = sample
 
@@ -126,30 +125,31 @@ def face_seq_to_video(data, output_path, fps=3):
     print(f"Saved face sequence video to {output_path}")
 
 
-def to_dataframe(data):
+def save_sequential_data(data, output_path, verbose=True):
     """
-    Convert loaded data into a pandas DataFrame for summary statistics.
+    Save the sequential data to a CSV file.
     """
-    records = [
-        {
-            "seq_start": d["seq_start"],
-            "label": d["label"],
-        }
-        for d in data
-    ]
-    return pd.DataFrame(records)
+    df = pd.DataFrame(data)
+    df.pop("seq_start")  # Remove seq_start for simplicity
+    df.pop("face_seq")  # Remove face_seq as it's not needed in CSV
+    if verbose:
+        print(df.info())
+    df.to_csv(output_path, index=False)
+    print(f"Saved sequential data to {output_path}")
 
 
 if __name__ == "__main__":
-    participant_id = 8  # Set this as desired
     root_dir = "~/Documents/data/toadstool-dataset/toadstool2/Toadstool 2.0"
     root_dir = os.path.expanduser(root_dir)
+    cum_sum = 0
+    for participant_id in range(10):
+        print(f"Loading data for participant {participant_id}...")
+        data = load_participant(root_dir, participant_id)
+        output_path = os.path.join(
+            root_dir, f"sequential_data/participant_{participant_id}.csv"
+        )
+        save_sequential_data(data, output_path)
+        cum_sum += len(data)
+        print(f"Total samples loaded: {len(data)}")
 
-    print(f"Loading data for participant {participant_id}...")
-    data = load_participant(root_dir, participant_id)
-    print(f"Total samples loaded: {len(data)}")
-    face_seq_to_video(
-        data,
-        output_path=f"participant_{participant_id}_face_sequence.mp4",
-        fps=3,
-    )
+    print(f"Cumulative samples loaded: {cum_sum}")
