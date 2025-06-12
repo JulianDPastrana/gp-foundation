@@ -1,5 +1,5 @@
-from torch.utils.data import DataLoader, TensorDataset
 import torch
+from torch.utils.data import DataLoader, Dataset, TensorDataset, random_split
 
 
 def sine_cosine_forecasting(
@@ -48,6 +48,39 @@ def sine_cosine_forecasting(
     return train_loader, (X_test, Y_test)
 
 
+class _DualRateDataset(Dataset):
+    def __init__(
+        self,
+        seq_length_sec: float,
+        fs_high: int,
+        fs_low: int,
+        num_samples: int,
+        device: str,
+    ):
+        assert fs_high % fs_low == 0, "fs_high must be a multiple of fs_low"
+        self.seq_len_high = int(seq_length_sec * fs_high)
+        self.ratio = fs_high // fs_low
+        self.t_high = torch.arange(self.seq_len_high, dtype=torch.float32) / fs_high
+        self.t_low = (
+            torch.arange(self.seq_len_high // self.ratio, dtype=torch.float32) / fs_low
+        )
+        self.num_samples = num_samples
+        self.device = device
+
+    def __len__(self):
+        return self.num_samples
+
+    def __getitem__(self, idx):
+        phi = torch.rand(1) * 2 * torch.pi
+        high = torch.sin(2 * torch.pi * self.t_high + phi)
+        low = torch.cos(2 * torch.pi * self.t_low + phi)
+        # Upsample by repeating values (no manual indexing)
+        low_full = low.repeat_interleave(self.ratio)
+        X = torch.stack([high, low_full], dim=-1).to(self.device)  # (seq_len_high, 2)
+        y = (phi >= torch.pi).float().to(self.device)  # Binary target
+        return X, y
+
+
 def sine_cosine_dual_rate(
     seq_length_sec: float = 1.0,
     fs_high: int = 64,
@@ -55,56 +88,27 @@ def sine_cosine_dual_rate(
     num_samples: int = 1000,
     train_split: float = 0.8,
     batch_size: int = 32,
+    device: str = "cpu",
 ):
     """
     Generates a dual-rate toy dataset with two-channel inputs:
       - Channel 0: high-rate sine (fs_high)
-      - Channel 1: low-rate cosine (fs_low), upsampled to high-rate grid with NaNs where missing
-    The input X has shape (num_samples, seq_len_high, 2), and labels y are binary per sequence.
-
+      - Channel 1: low-rate cosine (fs_low), upsampled by repetition
     Returns:
       train_loader: DataLoader yielding (X_seq, y) where X_seq is (batch_size, seq_len_high, 2)
       (X_test, y_test): tensors for evaluation
     """
-    # Compute sequence lengths
-    seq_len_high = int(seq_length_sec * fs_high)
-    seq_len_low = int(seq_length_sec * fs_low)
+    # Build dataset and split
+    dataset = _DualRateDataset(seq_length_sec, fs_high, fs_low, num_samples, device)
+    train_size = int(train_split * num_samples)
+    test_size = num_samples - train_size
+    train_ds, test_ds = random_split(dataset, [train_size, test_size])
 
-    # Time vectors
-    t_high = torch.arange(seq_len_high, dtype=torch.float32) / fs_high
-    t_low = torch.arange(seq_len_low, dtype=torch.float32) / fs_low
-
-    X_list, y_list = [], []
-    for _ in range(num_samples):
-        # Random phase for variation
-        phi = torch.rand(1) * 2 * torch.pi
-        # Channel 0: high-rate sine
-        high = torch.sin(2 * torch.pi * t_high + phi)
-        # Channel 1: low-rate cosine
-        low = torch.cos(2 * torch.pi * t_low + phi)
-        # Upsample low to high grid
-        low_full = torch.full((seq_len_high,), float("nan"))
-        idx_low = (t_low * fs_high).long()
-        low_full[idx_low] = low
-        # Stack as two channels
-        X = torch.stack([high, low_full], dim=-1)  # (seq_len_high, 2)
-        # Label: 1 if phase in second half, else 0
-        y = (phi >= torch.pi).long()
-
-        X_list.append(X)
-        y_list.append(y)
-
-    # Stack samples
-    X = torch.stack(X_list, dim=0)  # (num_samples, seq_len_high, 2)
-    y = torch.cat(y_list, dim=0)  # (num_samples,)
-
-    # Split into train/test
-    split_idx = int(train_split * num_samples)
-    X_train, y_train = X[:split_idx], y[:split_idx]
-    X_test, y_test = X[split_idx:], y[split_idx:]
-
-    # Build DataLoader
-    train_ds = TensorDataset(X_train, y_train)
+    # Create DataLoader for training
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+
+    # Gather test samples into tensors
+    X_test = torch.stack([test_ds[i][0] for i in range(test_size)])
+    y_test = torch.tensor([test_ds[i][1] for i in range(test_size)])
 
     return train_loader, (X_test, y_test)
