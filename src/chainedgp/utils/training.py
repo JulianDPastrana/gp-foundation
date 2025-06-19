@@ -32,7 +32,7 @@ def train_model(
     loss_fn: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     model_name: str,
-    EPOCHS: int = 10,
+    EPOCHS: int,
 ):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     writer = SummaryWriter("runs/" + model_name + "_{}".format(timestamp))
@@ -76,3 +76,5 @@ def train_model(
             torch.save(model.state_dict(), model_path)
 
         epoch_number += 1
+
+    return model_path
