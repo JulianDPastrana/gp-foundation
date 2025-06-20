@@ -1,6 +1,5 @@
 import torch
 import matplotlib.pyplot as plt
-from torchinfo import summary
 from torch.utils.data import DataLoader, Dataset, random_split
 from chainedgp.utils.training import train_model
 
