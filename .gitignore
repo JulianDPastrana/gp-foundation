@@ -48,6 +48,7 @@ Thumbs.db
 checkpoints/
 outputs/
 models/
+runs/
 
 # Heavyweight datasets
 data/toadstool/
