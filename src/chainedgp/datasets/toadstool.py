@@ -3,7 +3,9 @@ from collections import Counter
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
+from sklearn.model_selection import StratifiedShuffleSplit
+from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data.sampler import WeightedRandomSampler
 
 
 def load_participant(root_dir: str, participant_id: int):
@@ -72,7 +74,8 @@ class ToadstoolSequentialDataset(Dataset):
         )
 
         label_str = "\n".join(
-            f"    • {name:10s}: {count}" for name, count in label_dist.items()
+            f"    • {name:10s}: {count:5} →  {count / self.__len__():.2%}"
+            for name, count in label_dist.items()
         )
 
         return (
@@ -99,6 +102,44 @@ class ToadstoolSequentialDataset(Dataset):
         }
         y = torch.tensor(samp["label"], device=self.device)  # shape (1,)
         return x, y
+
+
+def stratified_split(dataset, splits=(0.8, 0.1, 0.1), seed=None):
+    """
+    Stratified split into train/val/test maintaining class proportions.
+    """
+    # Extract all labels
+    labels_all = [int(dataset[i][1].item()) for i in range(len(dataset))]
+    sss1 = StratifiedShuffleSplit(
+        n_splits=1, test_size=splits[1] + splits[2], random_state=seed
+    )
+    train_idx, temp_idx = next(sss1.split(torch.zeros(len(labels_all)), labels_all))
+    # Split temp into val/test
+    labels_temp = [labels_all[i] for i in temp_idx]
+    val_frac = splits[1] / (splits[1] + splits[2])
+    sss2 = StratifiedShuffleSplit(
+        n_splits=1, test_size=(1 - val_frac), random_state=seed
+    )
+    val_rel, test_rel = next(sss2.split(torch.zeros(len(labels_temp)), labels_temp))
+    valid_idx = [temp_idx[i] for i in val_rel]
+    test_idx = [temp_idx[i] for i in test_rel]
+    return (
+        Subset(dataset, train_idx),
+        Subset(dataset, valid_idx),
+        Subset(dataset, test_idx),
+    )
+
+
+def make_balanced_loader(subset, batch_size=64):
+    """
+    Create a DataLoader with weighted sampling to approximate equal class frequency per batch.
+    """
+    # Gather labels from subset
+    labels = [int(subset[i][1].item()) for i in range(len(subset))]
+    counts = Counter(labels)
+    weights = [1.0 / counts[label] for label in labels]
+    sampler = WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
+    return DataLoader(subset, batch_size=batch_size, sampler=sampler)
 
 
 if __name__ == "__main__":

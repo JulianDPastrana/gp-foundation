@@ -1,6 +1,8 @@
-import torch
 import matplotlib.pyplot as plt
+import torch
+from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from torch.utils.data import DataLoader, Dataset, random_split
+
 from chainedgp.utils.training import train_model
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -133,8 +135,6 @@ if __name__ == "__main__":
     print(f"Model saved to {model_path}")
     model = MultiCellLSTM(hidden_size=10, output_size=1).to(DEVICE)
     model.load_state_dict(torch.load(model_path))
-
-    from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 
     # --- Evaluation on test set ---
     model.eval()
