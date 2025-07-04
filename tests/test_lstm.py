@@ -14,7 +14,7 @@ class MultiRateSequency(Dataset):
     def __init__(
         self,
         seq_length_sec: float,
-        freq_list: int,
+        freq_list: list[int],
         num_samples: int,
         device: str,
     ):
@@ -94,21 +94,21 @@ class MultiCellLSTM(torch.nn.Module):
         return self.out(hx)  # shape (B, output_size)
 
 
-def visualize_dataset(data_loader: DataLoader):
+def visualize_dataset(data_loader: DataLoader, batch_size: int):
     index = torch.randint(0, batch_size, (1,)).item()
     x_batch, y_batch = next(iter(data_loader))
     fig = plt.figure(figsize=(10, 6))
     for i in range(3):
         fig.add_subplot(3, 1, i + 1)
-        plt.plot(x_batch[i][index].cpu().numpy(), label="Phase {i + 1}")
+        plt.plot(x_batch[i][index].cpu().numpy(), label=f"Phase {i + 1}")
         plt.title(f"Target: {y_batch[index].item()}")
     plt.tight_layout()
     plt.show()
 
 
-if __name__ == "__main__":
+def main():
     dataset = MultiRateSequency(
-        seq_length_sec=2.0, freq_list=[64, 32, 4], num_samples=100_000, device=DEVICE
+        seq_length_sec=2.0, freq_list=[64, 32, 4], num_samples=100_000, device=str(DEVICE)
     )
     train_dataset, valid_dataset, test_dataset = random_split(dataset, [0.8, 0.1, 0.1])
     batch_size = 64
@@ -167,3 +167,7 @@ if __name__ == "__main__":
     print(f"Test F1 Score:  {f1:.4f}")
     print("Confusion Matrix:")
     print(cm)
+
+
+if __name__ == "__main__":
+    main()

@@ -8,13 +8,6 @@ from chainedgp.datasets.toadstool import (
     stratified_split,
 )
 
-DEVICE = "cpu"
-print(f"Using device: {DEVICE}")
-
-# Path to the dataset
-root = "~/Documents/data/toadstool-dataset/toadstool2/Toadstool 2.0"
-dataset = ToadstoolSequentialDataset(root, device=DEVICE)
-
 
 def get_class_distribution(loader, labels):
     """
@@ -54,7 +47,8 @@ def split_and_report_stratified(
     print(f"Train: {len(train_ds)}, Validation: {len(valid_ds)}, Test: {len(test_ds)}")
 
     # Create balanced loaders
-    train_loader = make_balanced_loader(train_ds, batch_size)
+    # train_loader = make_balanced_loader(train_ds, batch_size)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     valid_loader = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
 
@@ -76,5 +70,16 @@ def split_and_report_stratified(
             print(f"Class {cls}: {count} samples")
 
 
-if __name__ == "__main__":
+def main():
+    DEVICE = "cpu"
+    print(f"Using device: {DEVICE}")
+
+    # Path to the dataset
+    root = "~/Documents/data/toadstool-dataset/toadstool2/Toadstool 2.0"
+    dataset = ToadstoolSequentialDataset(root, device=DEVICE)
+    
     split_and_report_stratified(dataset, splits=(0.8, 0.1, 0.1), batch_size=700)
+
+
+if __name__ == "__main__":
+    main()

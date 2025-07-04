@@ -58,9 +58,7 @@ def train_model(
 
         avg_vloss = running_vloss / (i + 1)
         epoch_iter.set_description(
-            "Epoch {} - Loss: {:.2e} - Val Loss: {:.2e}".format(
-                epoch_number + 1, avg_loss, avg_vloss
-            )
+            "Epoch -> Loss: {:.2e} - Val Loss: {:.2e}".format(avg_loss, avg_vloss)
         )
 
         writer.add_scalars(

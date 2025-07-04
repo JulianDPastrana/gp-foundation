@@ -52,5 +52,9 @@ def test_toy_dataset_dual_rate_shapes_and_nans(
     assert torch.all(nan_counts == expected_nans)
 
 
-if __name__ == "__main__":
+def main():
     pytest.main([__file__])
+
+
+if __name__ == "__main__":
+    main()

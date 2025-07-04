@@ -24,24 +24,29 @@ class RegressionDataset(Dataset):
         return x, y
 
 
-dataset = RegressionDataset(num_samples=100_000, device=DEVICE)
-train_dataset, valid_dataset, test_dataset = random_split(dataset, [0.8, 0.1, 0.1])
-batch_size = 64
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-print(
-    f"Train samples: {len(train_dataset)}, Validation samples: {len(valid_dataset)}, Test samples: {len(test_dataset)}"
-)
+def main():
+    dataset = RegressionDataset(num_samples=100_000, device=DEVICE)
+    train_dataset, valid_dataset, test_dataset = random_split(dataset, [0.8, 0.1, 0.1])
+    batch_size = 64
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    print(
+        f"Train samples: {len(train_dataset)}, Validation samples: {len(valid_dataset)}, Test samples: {len(test_dataset)}"
+    )
 
-model = torch.nn.LazyLinear(2)
-model.to(DEVICE)
+    model = torch.nn.LazyLinear(2)
+    model.to(DEVICE)
 
-summary(model, input_size=(1, 10), verbose=2)
+    summary(model, input_size=(1, 10), verbose=2)
 
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-loss_fn = torch.nn.MSELoss()
-model_name = "regression_model"
-train_model(
-    model, train_loader, valid_loader, loss_fn, optimizer, model_name, EPOCHS=10
-)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    loss_fn = torch.nn.MSELoss()
+    model_name = "regression_model"
+    train_model(
+        model, train_loader, valid_loader, loss_fn, optimizer, model_name, EPOCHS=10
+    )
+
+
+if __name__ == "__main__":
+    main()
