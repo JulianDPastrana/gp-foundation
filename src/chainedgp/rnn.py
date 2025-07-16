@@ -61,7 +61,6 @@ class MultiRateLSTM(torch.nn.Module):
         return output, (h_t, c_t)
 
 
-# Example usage
 def main():
     batch_size = 2
     input_list = [
