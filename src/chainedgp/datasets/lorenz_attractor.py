@@ -1,80 +1,73 @@
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
+from torch.utils import data
 from torch.utils.data import Dataset
 
 
 class LorenzAttractorDataset(Dataset):
     def __init__(
         self,
-        num_steps: int = 1000,
-        initial_values: tuple[float, float, float] = (0.0, 1.0, 1.05),
-        downsampling_rates: tuple[int, int, int] = (1, 10, 100),
-        system_parameters: tuple[float, float, float] = (10.0, 28.0, 2.667),
+        num_samples: int = 3,
+        window_steps: int = 4,
         dt: float = 0.01,
+        downsampling_rates: tuple[int, int] = (1, 2),
+        initial_values: tuple[float, float, float] = (0.0, 1.0, 1.05),
+        system_parameters: tuple[float, float, float] = (10.0, 28.0, 2.667),
         device: str = "cpu",
     ) -> None:
-        # Setup
+        super().__init__()
+        self.num_samples = num_samples
         self.device = torch.device(device)
-        self.num_steps = num_steps
-        self.downsampling_rates = downsampling_rates
+        self.window_steps = window_steps
+        self.dx, self.dy = downsampling_rates
         s, r, b = system_parameters
 
-        # Preallocate trajectory tensor
-        traj = torch.empty((num_steps + 1, 3), device=self.device)
+        # 1) integrate full trajectory
+        num_steps = window_steps * num_samples + 1
+        traj = torch.empty((num_steps, 3), device=self.device)
         traj[0] = torch.tensor(initial_values, device=self.device)
-
-        # Unpack initial state
         x, y, z = traj[0]
-
-        # Iterate with in-place updates to avoid extra tensor allocations
-        for i in range(num_steps):
+        for i in range(num_steps - 1):
             x_dot = s * (y - x)
             y_dot = r * x - y - x * z
             z_dot = x * y - b * z
-
             x = x + x_dot * dt
             y = y + y_dot * dt
             z = z + z_dot * dt
+            traj[i + 1] = torch.stack((x, y, z))
 
-            traj[i + 1, 0] = x
-            traj[i + 1, 1] = y
-            traj[i + 1, 2] = z
+        self.traj = traj
 
-        # Downsample each channel
-        self.x = traj[:-1, 0][:: downsampling_rates[0]]
-        self.y = traj[:-1, 1][:: downsampling_rates[1]]
-        self.z = traj[1:, 2][:: downsampling_rates[2]]
+    def __len__(self):
+        return self.num_samples
 
-    def __len__(self) -> int:
-        # Number of available samples for prediction
-        return self.x.size(0)
-
-    def __getitem__(
-        self, index: int
-    ) -> tuple[tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
-        # Inputs: current x and y
-        # Target: next z
-        return (self.x[index], self.y[index]), self.z[index]
+    def __getitem__(self, index: int):
+        w = self.window_steps
+        # sequence of x and y, downsampled
+        x_seq = self.traj[index : index + w : self.dx, 0]
+        y_seq = self.traj[index : index + w : self.dy, 1]
+        # target is z at future time t+w
+        z_target = self.traj[index + w + 1, 2]
+        return (x_seq, y_seq), z_target
 
 
 def main():
-    dataset = LorenzAttractorDataset(num_steps=1000, downsampling_rates=(1, 2, 4))
-
-    # Move to CPU and convert to numpy
-    x = dataset.x.cpu().numpy()
-    y = dataset.y.cpu().numpy()
-    z = dataset.z.cpu().numpy()
+    dataset = LorenzAttractorDataset()
     num_samples = len(dataset)
-    rx, ry, rz = dataset.downsampling_rates
-    print(num_samples, rx, x.shape)
-    # Plot all samples in a single figure
-    plt.figure()
-    plt.scatter(range(0, num_samples, rx), x, label="x")
-    plt.scatter(range(0, num_samples, ry), y, label="y")
-    plt.scatter(range(rz, num_samples + rz, rz), z, label="z")
-    plt.xlabel("Sample Index")
-    plt.ylabel("Value")
+    window_steps = dataset.window_steps
+    rx, ry = dataset.dx, dataset.dy
+    print(f"Num of samples: {num_samples}")
+    fig, axes = plt.subplots(num_samples, 1, figsize=(12, 4 * num_samples))
+
+    for idx, ax in enumerate(fig.axes):
+        (x_seq, y_seq), z_seq = dataset[idx]
+        ax.scatter(range(0, window_steps, rx), x_seq.cpu().numpy(), label="x")
+        ax.scatter(range(0, window_steps, ry), y_seq.cpu().numpy(), label="y")
+        ax.scatter([window_steps], z_seq.cpu().numpy(), label="z")
+
     plt.legend()
+    plt.tight_layout()
     plt.show()
 
 
