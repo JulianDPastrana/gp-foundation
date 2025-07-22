@@ -1,7 +1,5 @@
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
-from torch.utils import data
 from torch.utils.data import Dataset
 
 
@@ -53,15 +51,19 @@ class LorenzAttractorDataset(Dataset):
 
 
 def main():
-    dataset = LorenzAttractorDataset()
+    dataset = LorenzAttractorDataset(num_samples=100, window_steps=10)
     num_samples = len(dataset)
     window_steps = dataset.window_steps
     rx, ry = dataset.dx, dataset.dy
     print(f"Num of samples: {num_samples}")
-    fig, axes = plt.subplots(num_samples, 1, figsize=(12, 4 * num_samples))
+    num_axis = min(3, num_samples)
+    fig, _ = plt.subplots(num_axis, 1, figsize=(12, 4 * num_axis))
 
     for idx, ax in enumerate(fig.axes):
         (x_seq, y_seq), z_seq = dataset[idx]
+        if idx == 0:
+            print(f"x seq len: {len(x_seq)}, x seq len: {len(y_seq)}")
+
         ax.scatter(range(0, window_steps, rx), x_seq.cpu().numpy(), label="x")
         ax.scatter(range(0, window_steps, ry), y_seq.cpu().numpy(), label="y")
         ax.scatter([window_steps], z_seq.cpu().numpy(), label="z")
