@@ -20,7 +20,7 @@ def load_participant(root_dir: str, participant_id: int):
         raise FileNotFoundError(f"Could not find file: {fname}")
 
     arr = np.load(fname, allow_pickle=True)
-    for (face_seq, physio, seq_start), label in arr:
+    for (_, physio, seq_start), label in arr:
         # Skip face_seq; parse physio & acc only
         bvp = np.array(physio[0])
         eda = np.array(physio[1])
@@ -115,8 +115,8 @@ def stratified_split(dataset, splits=(0.8, 0.1, 0.1), seed=None):
     )
     train_idx, temp_idx = next(sss1.split(torch.zeros(len(labels_all)), labels_all))
     # Convert numpy arrays to lists
-    train_idx = train_idx.tolist()
-    temp_idx = temp_idx.tolist()
+    train_idx = list(train_idx)
+    temp_idx = list(temp_idx)
     # Split temp into val/test
     labels_temp = [labels_all[i] for i in temp_idx]
     val_frac = splits[1] / (splits[1] + splits[2])
@@ -124,8 +124,8 @@ def stratified_split(dataset, splits=(0.8, 0.1, 0.1), seed=None):
         n_splits=1, test_size=(1 - val_frac), random_state=seed
     )
     val_rel, test_rel = next(sss2.split(torch.zeros(len(labels_temp)), labels_temp))
-    val_rel = val_rel.tolist()
-    test_rel = test_rel.tolist()
+    val_rel = list(val_rel)
+    test_rel = list(test_rel)
     valid_idx = [temp_idx[i] for i in val_rel]
     test_idx = [temp_idx[i] for i in test_rel]
     return (
@@ -150,7 +150,6 @@ def make_balanced_loader(subset, batch_size=64):
 def main():
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {DEVICE}")
-    # Example usage:
     root = "~/Documents/data/toadstool-dataset/toadstool2/Toadstool 2.0"
     dataset = ToadstoolSequentialDataset(root, device=DEVICE)
     print(dataset)
@@ -166,5 +165,15 @@ def main():
     )
 
 
+def check_stratified_split():
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {DEVICE}")
+    root = "~/Documents/data/toadstool-dataset/toadstool2/Toadstool 2.0"
+    dataset = ToadstoolSequentialDataset(root, device=DEVICE)
+    print(dataset)
+    train_ds, val_ds, test_ds = stratified_split(dataset)
+    print(train_ds)
+
+
 if __name__ == "__main__":
-    main()
+    check_stratified_split()

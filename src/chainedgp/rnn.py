@@ -1,4 +1,5 @@
 import torch
+import math
 
 
 class MultiRateLSTM(torch.nn.Module):
@@ -25,7 +26,7 @@ class MultiRateLSTM(torch.nn.Module):
             (h_n, c_n): final hidden and cell states
         """
         # Compute sequence lengths and maximum length
-        x = sorted(x, key=lambda seq: seq.size(0), reverse=True)
+        # x = sorted(x, key=lambda seq: seq.size(0), reverse=True)
         seq_lens = [seq.size(0) for seq in x]
         max_len = max(seq_lens)
         batch_size = x[0].size(1)
@@ -42,14 +43,17 @@ class MultiRateLSTM(torch.nn.Module):
 
         # Iterate over timesteps
         for t in range(max_len):
+            print(f"t-intant {t}")
             # Collect inputs from sequences at this timestep accord to their sampling rate
             xt_list = []
             for seq, ratio in zip(x, ratios):
                 if t % ratio == 0:
                     idx = t // ratio
+                    print(idx)
                     xt_list.append(seq[idx])
             # Concatenate along feature dimension
             xt = torch.cat(xt_list, dim=-1)
+            print(xt.shape)
 
             # Select and apply the corresponding LSTMCell
             cell = self.cells[str(xt.size(1))]
@@ -62,18 +66,42 @@ class MultiRateLSTM(torch.nn.Module):
 
 
 def main():
-    batch_size = 2
+    batch_size = 1
     input_list = [
         torch.randn(5, batch_size, 3),
         torch.randn(10, batch_size, 1),
         torch.randn(2, batch_size, 2),
     ]
-    input_size_list = [1, 2, 3, 4, 6]
+    input_size_list = [6, 1, 4, 3]
 
     model = MultiRateLSTM(input_size_list=input_size_list, hidden_size=3)
     out, (hn, cn) = model(input_list)
     print(out.shape, hn.shape, cn.shape)
 
 
+def check_padding():
+    batch_size = 1
+    input_list = [
+        torch.ones(5, batch_size, 1),
+        torch.ones(10, batch_size, 1),
+        torch.ones(2, batch_size, 1),
+    ]
+
+    seq_lens = [seq.size(0) for seq in input_list]
+    max_len = math.lcm(*seq_lens)
+    print(max_len)
+
+    # Compute sampling ratios for each sequence
+    ratios = [max_len // seq_len for seq_len in seq_lens]
+    print(ratios)
+
+    input_dims = [seq.size(-1) for seq in input_list]
+    max_dim = sum(input_dims)
+    print(max_dim)
+
+    input_window = torch.zeros(max_dim, max_len)
+    print(input_window)
+
+
 if __name__ == "__main__":
-    main()
+    check_padding()

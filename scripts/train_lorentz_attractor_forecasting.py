@@ -140,7 +140,9 @@ def train(
 print(f"Using device: {DEVICE}")
 
 # Create Datasets
-dataset = LorenzAttractorDataset(num_samples=100_000, window_steps=2, dt=1e-3)
+dataset = LorenzAttractorDataset(
+    num_samples=100, window_steps=2, dt=1e-3, device=DEVICE
+)
 N = len(dataset)
 print(f"Dataset length: {N}")
 
@@ -156,12 +158,22 @@ test_ds = Subset(dataset, test_indices)
 
 print(f"Train: {len(train_ds)}, Validation: {len(valid_ds)}, Test: {len(test_ds)}")
 
-batch_size = 10_000
+batch_size = 2
 train_loader = DataLoader(
-    train_ds, batch_size=batch_size, shuffle=True, collate_fn=lorenz_collate_fn
+    train_ds,
+    batch_size=batch_size,
+    shuffle=True,
+    collate_fn=lorenz_collate_fn,
+    # pin_memory=True,
+    # num_workers=1,
 )
 valid_loader = DataLoader(
-    valid_ds, batch_size=batch_size, shuffle=True, collate_fn=lorenz_collate_fn
+    valid_ds,
+    batch_size=batch_size,
+    shuffle=True,
+    collate_fn=lorenz_collate_fn,
+    # pin_memory=True,
+    # num_workers=1,
 )
 test_loader = DataLoader(
     test_ds, batch_size=batch_size, shuffle=False, collate_fn=lorenz_collate_fn
@@ -173,7 +185,7 @@ input_size_list = [1, 2]
 model = MultiRateLSTMModel(input_size_list=input_size_list, hidden_size=hidden_size)
 
 # Loss function
-loss_fn = torch.nn.MSELoss()
+loss_fn = torch.nn.MSELoss(reduction="mean")
 
 # Optimizer
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
@@ -186,7 +198,7 @@ history = train(
     valid_loader=valid_loader,
     loss_fn=loss_fn,
     optimizer=optimizer,
-    epochs=10,
+    epochs=1,
     device=DEVICE,
 )
 # --- Evaluation on test set ---
@@ -200,12 +212,13 @@ y_test = []
 with torch.no_grad():
     for x, y in test_loader:
         # forward pass
+        x = [xmod.cpu() for xmod in x]
         out = model(x)
         preds = out
 
         # move to CPU and store
         x_test.append(x[0].ravel().cpu())
-        y_test.append(y[0].ravel().cpu())
+        y_test.append(x[1].ravel().cpu())
         z_true.append(y.cpu())
         z_pred.append(preds.cpu())
 
@@ -228,8 +241,8 @@ print(f"Test MSE: {mse:.4f} | MAE: {mae:.4f} | R²: {r2:.4f}")
 # build “original-step” axes for each channel
 # (i.e. how many integrator steps each sample corresponds to)
 idx_z = np.arange(len(z_true))
-idx_x = np.arange(len(x_test * rx))
-idx_y = np.arange(len(y_test * ry))
+idx_x = np.arange(len(x_test)) * rx
+idx_y = np.arange(len(y_test)) * ry
 
 # --- 3) Make two‐row figure ---
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=False)

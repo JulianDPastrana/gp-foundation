@@ -57,7 +57,7 @@ def main():
     rx, ry = dataset.dx, dataset.dy
     print(f"Num of samples: {num_samples}")
     num_axis = min(3, num_samples)
-    fig, _ = plt.subplots(num_axis, 1, figsize=(12, 4 * num_axis))
+    fig, _ = plt.subplots(num_axis, 1, figsize=(12, 4 * num_samples))
 
     for idx, ax in enumerate(fig.axes):
         (x_seq, y_seq), z_seq = dataset[idx]
