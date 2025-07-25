@@ -77,7 +77,7 @@ def main():
     # Path to the dataset
     root = "~/Documents/data/toadstool-dataset/toadstool2/Toadstool 2.0"
     dataset = ToadstoolSequentialDataset(root, device=DEVICE)
-    
+
     split_and_report_stratified(dataset, splits=(0.8, 0.1, 0.1), batch_size=700)
 
 

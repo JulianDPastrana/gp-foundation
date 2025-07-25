@@ -43,10 +43,10 @@ class LorenzAttractorDataset(Dataset):
     def __getitem__(self, index: int):
         w = self.window_steps
         # sequence of x and y, downsampled
-        x_seq = self.traj[index : index + w : self.dx, 0]
-        y_seq = self.traj[index : index + w : self.dy, 1]
-        # target is z at future time t+w
-        z_target = self.traj[index + w + 1, 2]
+        x_seq = self.traj[index * w : (index + 1) * w : self.dx, 0].unsqueeze(-1)
+        y_seq = self.traj[index * w : (index + 1) * w : self.dy, 1].unsqueeze(-1)
+        # target is z at future time
+        z_target = self.traj[(index + 1) * w, 2].unsqueeze(-1)
         return (x_seq, y_seq), z_target
 
 

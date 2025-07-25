@@ -43,17 +43,14 @@ class MultiRateLSTM(torch.nn.Module):
 
         # Iterate over timesteps
         for t in range(max_len):
-            print(f"t-intant {t}")
             # Collect inputs from sequences at this timestep accord to their sampling rate
             xt_list = []
             for seq, ratio in zip(x, ratios):
                 if t % ratio == 0:
                     idx = t // ratio
-                    print(idx)
                     xt_list.append(seq[idx])
             # Concatenate along feature dimension
             xt = torch.cat(xt_list, dim=-1)
-            print(xt.shape)
 
             # Select and apply the corresponding LSTMCell
             cell = self.cells[str(xt.size(1))]
@@ -99,8 +96,8 @@ def check_padding():
     max_dim = sum(input_dims)
     print(max_dim)
 
-    input_window = torch.zeros(max_dim, max_len)
-    print(input_window)
+    input_mask = torch.zeros(max_dim, max_len)
+    print(input_mask)
 
 
 if __name__ == "__main__":

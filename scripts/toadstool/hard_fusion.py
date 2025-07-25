@@ -6,76 +6,80 @@ import torch
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
-import math
+
 from chainedgp.datasets.toadstool import (
     ToadstoolSequentialDataset,
     stratified_split,
 )
+from chainedgp.rnn import MultiRateLSTM
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DEVICE = "cpu"
 SEED = 42
 torch.set_default_dtype(torch.float64)
 
 
-class LSTMMergeHidden(torch.nn.Module):
-    def __init__(self, hidden_size, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        num_layers = 3
-        self.cells = torch.nn.ModuleDict(
-            {
-                "bvp": torch.nn.LSTM(
-                    input_size=1,
-                    hidden_size=hidden_size,
-                    batch_first=True,
-                    num_layers=num_layers,
-                ),
-                "eda": torch.nn.LSTM(
-                    input_size=1,
-                    hidden_size=hidden_size,
-                    batch_first=True,
-                    num_layers=num_layers,
-                ),
-                "hr": torch.nn.LSTM(
-                    input_size=1,
-                    hidden_size=hidden_size,
-                    batch_first=True,
-                    num_layers=num_layers,
-                ),
-                "acc": torch.nn.LSTM(
-                    input_size=3,
-                    hidden_size=hidden_size,
-                    batch_first=True,
-                    num_layers=num_layers,
-                ),
-            }
-        )
-
-    def forward(self, inputs):
-        hidden_states = []
-        for key, value in inputs.items():
-            lstm_cell = self.cells[key]
-            output, (ht, ct) = lstm_cell(value)
-            hidden_states.append(ht[-1])
-
-        hidden_states = torch.cat(hidden_states, dim=-1)
-        return hidden_states
-
-
 class MultiRateLSTMModel(torch.nn.Module):
-    def __init__(self, hidden_size: int, output_size: int):
+    def __init__(self, input_size_list: list[int], hidden_size: int, output_size: int):
         super().__init__()
-
-        self.lstm_layer = LSTMMergeHidden(hidden_size=hidden_size)
+        self.multirate_lstm = MultiRateLSTM(
+            input_size_list=input_size_list,
+            hidden_size=hidden_size,
+        )
+        self.lstm = torch.nn.LSTM(
+            input_size=hidden_size,
+            hidden_size=hidden_size,
+            num_layers=3,
+            bidirectional=False,
+        )
         self.output_layer = torch.nn.Linear(
-            in_features=4 * hidden_size,
+            in_features=hidden_size,
             out_features=output_size,
         )
 
-    def forward(self, inputs):
-        ht = self.lstm_layer(inputs)
-        out = self.output_layer(ht)
+    def forward(
+        self, inputs: List[Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]]
+    ):
+        # Pass through your multirate LSTM
+        out, (ht, ct) = self.multirate_lstm(inputs)
+        out, (ht, ct) = self.lstm(out)
+        # Map to a single continuous output
+        out = self.output_layer(ht[-1])
         return out
+
+
+def toadstool_collate_fn(
+    batch: List[Tuple[Dict[str, torch.Tensor], torch.Tensor]],
+) -> Tuple[List[torch.Tensor], torch.Tensor]:
+    """
+    Collate a batch where each sample is (x_dict, y),
+    x_dict has keys "bvp", "eda", "hr", "acc" with shapes:
+      - bvp: (T_bvp, 1)
+      - eda: (T_eda, 1)
+      - hr:  (T_hr, 1)
+      - acc: (T_acc, 3)
+    Returns:
+      - x_list: [bvp_batch, eda_batch, hr_batch, acc_batch], where each
+        tensor is shaped (sequence_length, batch_size, feature_dim)
+      - y_batch: tensor shaped (batch_size, 1)
+    """
+    # unzip samples
+    x_dicts, y_list = zip(*batch)
+
+    # stack labels
+    y_batch = torch.stack(y_list, dim=0)  # (B, 1)
+
+    # Define the modality order you want in the list:
+    modalities = ["bvp", "eda", "hr", "acc"]
+    x_list: List[torch.Tensor] = []
+
+    for mod in modalities:
+        # gather and stack: result is (batch_size, seq_len, feat_dim)
+        mod_batch = torch.stack([x_dict[mod] for x_dict in x_dicts], dim=0)
+        # swap to (seq_len, batch_size, feat_dim)
+        mod_batch = mod_batch.transpose(0, 1)
+        x_list.append(mod_batch)
+
+    return x_list, y_batch
 
 
 def train(
@@ -160,28 +164,29 @@ def main():
     root = "~/Documents/data/toadstool-dataset/toadstool2/Toadstool 2.0"
     dataset = ToadstoolSequentialDataset(root, device=DEVICE)
     print(dataset)
-    train_ds, valid_ds, test_ds = stratified_split(dataset, [0.8, 0.1, 0.1])
+    train_ds, valid_ds, test_ds = stratified_split(dataset, [0.9, 0.05, 0.05])
     print(f"Train: {len(train_ds)}, Validation: {len(valid_ds)}, Test: {len(test_ds)}")
-    batch_size = 32
+    batch_size = 64
 
     # train_loader = make_balanced_loader(train_ds, batch_size)
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    valid_loader = DataLoader(valid_ds, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
-    batch_x, batch_y = next(iter(train_loader))
-    print(
-        batch_x["bvp"].shape,
-        batch_x["eda"].shape,
-        batch_x["hr"].shape,
-        batch_x["acc"].shape,
-        batch_y.shape,
+    train_loader = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True, collate_fn=toadstool_collate_fn
     )
-    hidden_size = 5
+    valid_loader = DataLoader(
+        valid_ds, batch_size=batch_size, shuffle=True, collate_fn=toadstool_collate_fn
+    )
+    test_loader = DataLoader(
+        test_ds, batch_size=batch_size, shuffle=False, collate_fn=toadstool_collate_fn
+    )
+
+    hidden_size = 64
     num_classes = len(dataset.labels)
     print(f"Hidden size: {hidden_size}, Number of classes: {num_classes}")
 
     # Set Up the model
+    input_size_list = [6, 1, 4, 5]
     model = MultiRateLSTMModel(
+        input_size_list=input_size_list,
         hidden_size=hidden_size,
         output_size=num_classes,
     )
@@ -202,7 +207,7 @@ def main():
         valid_loader=valid_loader,
         loss_fn=loss_fn,
         optimizer=optimizer,
-        epochs=20,
+        epochs=100,
         device=DEVICE,
     )
     # --- Evaluation on test set ---
@@ -210,19 +215,17 @@ def main():
     model.to("cpu")
     y_true = []
     y_pred = []
-    inputs = []
+
     with torch.no_grad():
         for x, y in test_loader:
             # Forward pass
+            x = [xmod.cpu() for xmod in x]
             out = model(x)
             preds = out.argmax(dim=-1)
             # Accumulate
             y_true.extend(y.cpu().tolist())
             y_pred.extend(preds.cpu().tolist())
-            inputs.append(x)
 
-    # inputs = torch.cat(inputs, dim=0)
-    # print(inputs)
     # Compute metrics
     acc = accuracy_score(y_true, y_pred)
     f1 = f1_score(y_true, y_pred, average="weighted")

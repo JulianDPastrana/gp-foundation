@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import DataLoader, Subset, random_split
 from chainedgp.datasets.lorenz_attractor import LorenzAttractorDataset
+import math
 
 # from chainedgp.rnn import MultiRateLSTM
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
@@ -14,73 +15,16 @@ SEED = 1103
 torch.set_default_dtype(torch.float64)
 
 
-class MultiRateLSTM(torch.nn.Module):
-    def __init__(self, input_size_list: list[int], hidden_size: int) -> None:
-        super().__init__()
-        self.hidden_size = hidden_size
-        # Register LSTMCells in a ModuleDict keyed by input size
-        self.cells = torch.nn.ModuleDict(
-            {
-                str(input_size): torch.nn.LSTMCell(
-                    input_size=input_size, hidden_size=hidden_size
-                )
-                for input_size in input_size_list
-            }
-        )
-
-    def forward(
-        self, x: list[torch.Tensor]
-    ) -> tuple[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
-        """
-        x: list of tensors with shape seq_len x batch_size x input_size
-        Returns:
-            output: Tensor of shape (max_len, batch_size, hidden_size)
-            (h_n, c_n): final hidden and cell states
-        """
-        # Compute sequence lengths and maximum length
-        # x = sorted(x, key=lambda seq: seq.size(0), reverse=True)
-        seq_lens = [seq.size(0) for seq in x]
-        max_len = max(seq_lens)
-        batch_size = x[0].size(1)
-        device = x[0].device
-        dtype = x[0].dtype
-
-        # Compute sampling ratios for each sequence
-        ratios = [max_len // seq_len for seq_len in seq_lens]
-
-        # Initialize hidden and cell states
-        h_t = torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype)
-        c_t = torch.zeros(batch_size, self.hidden_size, device=device, dtype=dtype)
-        outputs = []
-
-        # Iterate over timesteps
-        for t in range(max_len):
-            # Collect inputs from sequences at this timestep accord to their sampling rate
-            xt_list = []
-            for seq, ratio in zip(x, ratios):
-                if t % ratio == 0:
-                    idx = t // ratio
-                    xt_list.append(seq[idx])
-            # Concatenate along feature dimension
-            xt = torch.cat(xt_list, dim=-1)
-
-            # Select and apply the corresponding LSTMCell
-            cell = self.cells[str(xt.size(1))]
-            h_t, c_t = cell(xt, (h_t, c_t))
-            outputs.append(h_t)
-
-        # Stack outputs to shape (max_len, batch_size, hidden_size)
-        output = torch.stack(outputs, dim=0)
-        return output, (h_t, c_t)
-
-
 class MultiRateLSTMModel(torch.nn.Module):
-    def __init__(self, input_size_list: list[int], hidden_size: int):
+    def __init__(self, input_size: int, hidden_size: int):
         super().__init__()
         # your custom multirate LSTM
-        self.multirate_lstm = MultiRateLSTM(
-            input_size_list=input_size_list,
+        self.lstm = torch.nn.LSTM(
+            input_size=input_size,
             hidden_size=hidden_size,
+            num_layers=2,
+            dropout=0.1,
+            bidirectional=True,
         )
         # final regression head
         self.output_layer = torch.nn.Linear(
@@ -92,33 +36,59 @@ class MultiRateLSTMModel(torch.nn.Module):
         self, inputs: List[Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]]
     ):
         # Pass through your multirate LSTM
-        _, (ht, _) = self.multirate_lstm(inputs)
+        _, (ht, _) = self.lstm(inputs)
         # Map to a single continuous output
-        return self.output_layer(ht)
+        return self.output_layer(ht[-1])
 
 
 def lorenz_collate_fn(
     batch: List[Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]],
-) -> Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
-    # batch is a list of ((x_i, y_i), z_i) tuples
-    # unzip inputs and targets
-    inputs, targets = zip(*batch)  # inputs: tuple of (x_i, y_i)
-    xs, ys = zip(*inputs)  # xs: tuple of x_i, ys: tuple of y_i
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    batch: list of ((x_i, y_i), z_i), where
+      x_i: Tensor of shape (Lx,)
+      y_i: Tensor of shape (Ly,)
+      z_i: scalar Tensor
 
-    # stack into tensors of shape (batch_size, seq_len) or (batch_size,)
-    x_batch = torch.stack(xs)  # -> (B, ...)
-    y_batch = torch.stack(ys)  # -> (B, ...)
+    Returns:
+      x_aligned: Tensor of shape (T, B, 2), where
+        T = lcm(Lx, Ly), B = batch size, 2 = [x,y] channels
+        missing slots are filled with 0.
+      z_batch:   Tensor of shape (B, 1)
+    """
+    # 1) unzip
+    inputs, targets = zip(*batch)
+    xs_seq, ys_seq = zip(*inputs)
 
-    # do your per-batch transform here:
-    #  - swap batch and time dims
-    #  - add a channel dim at the end
-    x_batch = x_batch.transpose(0, 1)
-    # if you also want to transform y_batch the same way, do it here:
-    y_batch = y_batch.transpose(0, 1)
+    # 2) stack per‐modality into (Lx, B) and (Ly, B)
+    x_stack = torch.cat(xs_seq, dim=-1)  # (Lx, B)
+    y_stack = torch.cat(ys_seq, dim=-1)  # (Ly, B)
+    # 3) compute LCM of their lengths
+    Lx, B = x_stack.shape
+    Ly, _ = y_stack.shape
+    T = math.lcm(Lx, Ly)
 
-    z_batch = torch.stack(targets)  # -> (B, ...)
+    # 4) prepare empty aligned tensor
+    device = x_stack.device
+    dtype = x_stack.dtype
+    x_aligned = torch.zeros((T, B, 2), device=device, dtype=dtype)
 
-    return (x_batch, y_batch), z_batch
+    # 5) compute the “stretch” ratios
+    rx = T // Lx
+    ry = T // Ly
+
+    # 6) compute the time‐indices
+    idx_x = torch.arange(Lx, device=device) * rx  # shape (Lx,)
+    idx_y = torch.arange(Ly, device=device) * ry  # shape (Ly,)
+
+    # 7) scatter into the aligned tensor
+    x_aligned[idx_x, :, 0] = x_stack
+    x_aligned[idx_y, :, 1] = y_stack
+
+    # 8) stack targets into (B,1)
+    z_batch = torch.stack(targets, dim=0)
+
+    return x_aligned, z_batch
 
 
 def train(
@@ -194,7 +164,7 @@ print(f"Using device: {DEVICE}")
 
 # Create Datasets
 dataset = LorenzAttractorDataset(
-    num_samples=10_000, window_steps=2, dt=5e-3, device=DEVICE
+    num_samples=50_000, window_steps=2, dt=1e-2, device=DEVICE
 )
 N = len(dataset)
 print(f"Dataset length: {N}")
@@ -233,9 +203,9 @@ test_loader = DataLoader(
 )
 
 # Set Up the model
-hidden_size = 128
-input_size_list = [1, 2]
-model = MultiRateLSTMModel(input_size_list=input_size_list, hidden_size=hidden_size)
+hidden_size = 15
+input_size = 2
+model = MultiRateLSTMModel(input_size=input_size, hidden_size=hidden_size)
 
 # Loss function
 loss_fn = torch.nn.MSELoss(reduction="mean")
@@ -264,13 +234,13 @@ y_test = []
 
 with torch.no_grad():
     for x, y in test_loader:
+        print(x.shape, y.shape)
         # forward pass
-        x = [xmod.cpu() for xmod in x]
-        out = model(x)
+        out = model(x.cpu())
         preds = out
 
         # move to CPU and store
-        x_test.append(x[0].transpose(0, 1).ravel().cpu())
+        x_test.append(x[0].ravel().cpu())
         y_test.append(x[1].ravel().cpu())
         z_true.append(y.cpu())
         z_pred.append(preds.cpu())
@@ -294,8 +264,8 @@ print(f"Test MSE: {mse:.4f} | MAE: {mae:.4f} | R²: {r2:.4f}")
 # build “original-step” axes for each channel
 # (i.e. how many integrator steps each sample corresponds to)
 idx_z = np.arange(len(z_true))
-idx_x = np.arange(len(x_test)) * rx
-idx_y = np.arange(len(y_test)) * ry
+idx_x = np.arange(len(x_test))
+idx_y = np.arange(len(y_test))
 
 # --- 3) Make two‐row figure ---
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=False)

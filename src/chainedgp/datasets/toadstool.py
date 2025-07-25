@@ -25,7 +25,7 @@ def load_participant(root_dir: str, participant_id: int):
         bvp = np.array(physio[0])
         eda = np.array(physio[1])
         hr = np.array(physio[2])
-        acc = np.array([list(map(int, s.split(";"))) for s in physio[3]])  # (128,3)
+        acc = np.array([list(map(float, s.split(";"))) for s in physio[3]])  # (128,3)
         data.append(
             {
                 "bvp": bvp,
@@ -36,8 +36,7 @@ def load_participant(root_dir: str, participant_id: int):
                 "label": label,
             }
         )
-    # keep chronological order
-    return sorted(data, key=lambda x: x["seq_start"])
+    return data
 
 
 class ToadstoolSequentialDataset(Dataset):
