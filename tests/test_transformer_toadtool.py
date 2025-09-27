@@ -14,7 +14,7 @@ print(f"Using device: {DEVICE}")
 
 # Create the Model
 class PositionalEncoding(nn.Module):
-    def __init__(self, dim_model, dropout_p, max_len):
+    def __init__(self, dim_model: int, dropout_p: float, max_len: int) -> None:
         super().__init__()
         # Modified version from: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
         # max_len determines how far the position can have an effect on a token (window)
@@ -40,8 +40,9 @@ class PositionalEncoding(nn.Module):
         # Saving buffer (same as parameter without gradients needed)
         pos_encoding = pos_encoding.unsqueeze(0).transpose(0, 1)
         self.register_buffer("pos_encoding", pos_encoding)
+        self.pos_encoding: torch.Tensor
 
-    def forward(self, token_embedding: torch.tensor) -> torch.tensor:
+    def forward(self, token_embedding: torch.Tensor) -> torch.Tensor:
         # Residual connection + pos encoding
         return self.dropout(
             token_embedding + self.pos_encoding[: token_embedding.size(0), :]
