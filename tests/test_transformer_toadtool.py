@@ -11,8 +11,12 @@ torch.manual_seed(SEED)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {DEVICE}")
 
+# ------------------
+# THE MODEL
+# ------------------
 
-# Create the Model
+
+# Positiionl Encoding (sine and cosine)
 class PositionalEncoding(nn.Module):
     def __init__(self, dim_model: int, dropout_p: float, max_len: int) -> None:
         super().__init__()
@@ -47,3 +51,19 @@ class PositionalEncoding(nn.Module):
         return self.dropout(
             token_embedding + self.pos_encoding[: token_embedding.size(0), :]
         )
+
+
+# Traonsformer Encoder Model
+
+
+class TransformerEncoderModel(nn.Module):
+    def __init__(
+        self,
+        d_model=128,
+        nhead=8,
+        num_layers=3,
+        dim_feedforward=256,
+        dopout=0.1,
+        input_dim=1,
+    ) -> None:
+        super().__init__()
